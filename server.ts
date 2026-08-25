@@ -3,6 +3,12 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import { google } from "googleapis";
+import { exec } from "child_process";
+import fs from "fs";
+import tmp from "tmp";
+import util from "util";
+
+const execPromise = util.promisify(exec);
 
 async function startServer() {
   const app = express();
@@ -126,6 +132,18 @@ async function startServer() {
             query: { type: Type.STRING, description: "The search query" }
           },
           required: ["query"]
+        }
+      },
+      {
+        name: "execute_code",
+        description: "Executes Python or Node.js code internally to verify it before sending to the user. Always use this to check for syntax or runtime errors before answering the user with code.",
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            language: { type: Type.STRING, description: "Language to execute: 'python' or 'javascript'" },
+            code: { type: Type.STRING, description: "Source code to execute" }
+          },
+          required: ["language", "code"]
         }
       }
     ]
@@ -356,6 +374,29 @@ async function startServer() {
           });
           return { success: true, result: searchResponse.text };
         }
+        case "execute_code": {
+          const { language, code } = args;
+          let fileExtension = language === 'python' ? '.py' : '.js';
+          let command = language === 'python' ? 'python3' : 'node';
+          
+          let tmpobj: any = null;
+          try {
+            tmpobj = tmp.fileSync({ postfix: fileExtension });
+            fs.writeFileSync(tmpobj.name, code);
+            
+            // Execute with a timeout to prevent infinite loops
+            const { stdout, stderr } = await execPromise(`${command} ${tmpobj.name}`, { timeout: 10000 });
+            
+            if (stderr) {
+              return { success: false, error: stderr, output: stdout };
+            }
+            return { success: true, output: stdout };
+          } catch (e: any) {
+            return { success: false, error: e.stderr || e.message || e.toString(), output: e.stdout || '' };
+          } finally {
+            if (tmpobj) tmpobj.removeCallback();
+          }
+        }
         default:
           return { error: `Unknown function: ${call.name}` };
       }
@@ -383,6 +424,8 @@ Current date and time is: ${new Date().toISOString()}.
 When responding, be concise, polite, and helpful. ALWAYS speak in Spanish.
 Use the tools available to fulfill user requests related to emails, calendar, tasks, daily summaries, and contacts. You ALSO have access to Google Search to look up real-time information such as the weather.
 If asked to summarize emails, first list the recent emails, then use read_email on the relevant IDs to read their full contents, and finally provide a concise summary of their key points.
+If the user asks to execute code, calculate something, or write a Python/Node.js script, you MUST use the execute_code tool. You can use it to answer analytical questions, run math, or simply execute what the user asks. If it throws an error, fix it and test it again. Then, present the final output/result of the execution directly in the chat to the user, along with the code you used. You can still suggest they use the /sandbox command if they want to interact with it.
+For HTML/JS/CSS code requests, you do not need to use execute_code (as it's for backend only), simply generate the code in a Markdown block and suggest they use the /sandbox command to view it.
 After calling a tool, interpret the result and present it to the user in a natural, conversational way.`;
       
       const chat = ai.chats.create({
@@ -421,6 +464,32 @@ After calling a tool, interpret the result and present it to the user in a natur
     } catch (error: any) {
       console.error("Error in /api/chat:", error);
       res.status(500).json({ error: error.message || "Internal server error" });
+    }
+  });
+
+  app.post("/api/execute-sandbox", async (req, res) => {
+    let tmpobj: any = null;
+    try {
+      const { language, code } = req.body;
+      if (!code) return res.status(400).json({ error: "Missing code" });
+      
+      let fileExtension = language === 'python' ? '.py' : '.js';
+      let command = language === 'python' ? 'python3' : 'node';
+      
+      tmpobj = tmp.fileSync({ postfix: fileExtension });
+      fs.writeFileSync(tmpobj.name, code);
+      
+      // Execute with a timeout
+      const { stdout, stderr } = await execPromise(`${command} ${tmpobj.name}`, { timeout: 10000 });
+      
+      if (stderr) {
+        return res.json({ success: false, error: stderr, output: stdout });
+      }
+      return res.json({ success: true, output: stdout });
+    } catch (e: any) {
+      return res.json({ success: false, error: e.stderr || e.message || e.toString(), output: e.stdout || '' });
+    } finally {
+      if (tmpobj) tmpobj.removeCallback();
     }
   });
 

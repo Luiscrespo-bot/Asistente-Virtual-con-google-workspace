@@ -10,6 +10,7 @@ import { Mic, MicOff, Send, LogOut, Calendar, Mail, CheckSquare, Loader2, Messag
 import { motion, AnimatePresence } from 'motion/react';
 import DrawingApp from './components/DrawingApp';
 import AccountingApp from './components/AccountingApp';
+import SandboxApp from './components/SandboxApp';
 
 type Message = {
   id: string;
@@ -23,7 +24,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'assistant' | 'drawing' | 'accounting'>('assistant');
+  const [activeTab, setActiveTab] = useState<'assistant' | 'drawing' | 'accounting' | 'sandbox'>('assistant');
 
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -35,6 +36,8 @@ export default function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [textInput, setTextInput] = useState('');
+  const [sandboxCode, setSandboxCode] = useState('');
+  const [sandboxLang, setSandboxLang] = useState('python');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
 
@@ -104,10 +107,12 @@ export default function App() {
       } else if (['pdf', 'grafica', 'contabilidad'].includes(command)) {
         setActiveTab('accounting');
         setTimeout(() => window.dispatchEvent(new CustomEvent('app-command', { detail: command })), 100);
+      } else if (['sandbox', 'codigo', 'code'].includes(command)) {
+        setActiveTab('sandbox');
       } else if (['asistente', 'chat'].includes(command)) {
         setActiveTab('assistant');
       } else {
-        setMessages(prev => [...prev, { id: Date.now().toString(), role: 'assistant', text: `Comando no reconocido: /${command}. Comandos disponibles: /dibujo, /contabilidad, /asistente, /ampliar, /pdf, /grafica` }]);
+        setMessages(prev => [...prev, { id: Date.now().toString(), role: 'assistant', text: `Comando no reconocido: /${command}. Comandos disponibles: /dibujo, /contabilidad, /sandbox, /asistente, /ampliar, /pdf, /grafica` }]);
         setTextInput('');
         return;
       }
@@ -136,6 +141,13 @@ export default function App() {
       } else {
         setMessages(prev => [...prev, { id: Date.now().toString(), role: 'assistant', text: data.text }]);
         speakText(data.text);
+        
+        // Extraer código si existe
+        const codeMatch = data.text.match(/```(\w+)\n([\s\S]*?)```/);
+        if (codeMatch) {
+           setSandboxLang(codeMatch[1]);
+           setSandboxCode(codeMatch[2]);
+        }
       }
     } catch (error) {
       console.error('Error sending message:', error);
@@ -374,6 +386,12 @@ export default function App() {
         {activeTab === 'accounting' && (
           <div className="flex-1 w-full relative z-10 animate-in fade-in zoom-in duration-300">
             {user && <AccountingApp user={user} />}
+          </div>
+        )}
+
+        {activeTab === 'sandbox' && (
+          <div className="flex-1 w-full relative z-10 animate-in fade-in zoom-in duration-300">
+            <SandboxApp initialCode={sandboxCode} initialLanguage={sandboxLang} />
           </div>
         )}
       </main>
