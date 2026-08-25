@@ -1,0 +1,6 @@
+{
+  "name": "Asistente Virtual de Google Workspace",
+  "description": "Un asistente virtual por voz que gestiona tu Google Calendar, Gmail y Google Tasks.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
